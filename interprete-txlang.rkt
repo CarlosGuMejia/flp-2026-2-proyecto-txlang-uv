@@ -1,5 +1,5 @@
 #lang eopl
-;Autores:  Juan Eduardo Calderon Jaramillo 2611001
+;Autores:  Juan Eduardo Calderon Jaramillo 2611001, Carlos Humberto Gutierrez 2059817
 
 #|
   Interpretador de TxLang-UV.
@@ -132,11 +132,54 @@
 ;;; ==========================================================
 ;;; 5. TAD almacén
 ;;; ==========================================================
-;; Celdas que se reservan con ref, se leen con deref y se escriben con set.
-;; En la primera entrega las escrituras son definitivas; en la segunda el
-;; almacén lleva el registro que permite revertir un bloque atomic. Conviene
-;; diseñar la interfaz desde ahora pensando en eso.
+;; ;; Interfaz:
+;;   (inicializar-almacen!)         -> deja el almacén vacío
+;;   (almacen-reservar! v)          -> crea una celda con v y devuelve su referencia
+;;   (almacen-leer ref)             -> contenido de la celda ref
+;;   (almacen-escribir! ref v)      -> reemplaza el contenido de la celda ref
+;;
+;; Representación: una lista de valores guardada en una variable global.
+;; La referencia n es la posición n de la lista. Todo el que toque la
+;; memoria pasa por estas cuatro funciones, así que la segunda entrega puede
+;; agregar el registro de cambios aquí adentro sin tocar el resto.
 
+(define the-almacen 'sin-inicializar)
+
+(define inicializar-almacen!
+  (lambda ()
+    (set! the-almacen '())))
+
+(define referencia-valida?
+  (lambda (ref)
+    (and (integer? ref)
+         (>= ref 0)
+         (< ref (length the-almacen)))))
+
+(define almacen-reservar!
+  (lambda (v)
+    (let ((ref (length the-almacen)))
+      (begin
+        (set! the-almacen (append the-almacen (list v)))
+        ref))))
+
+(define almacen-leer
+  (lambda (ref)
+    (if (referencia-valida? ref)
+        (list-ref the-almacen ref)
+        (eopl:error 'almacen-leer "Referencia invalida: ~s" ref))))
+
+;; Devuelve una lista igual a lst, con v en la posición i.
+(define reemplazar-en
+  (lambda (lst i v)
+    (if (= i 0)
+        (cons v (cdr lst))
+        (cons (car lst) (reemplazar-en (cdr lst) (- i 1) v)))))
+
+(define almacen-escribir!
+  (lambda (ref v)
+    (if (referencia-valida? ref)
+        (set! the-almacen (reemplazar-en the-almacen ref v))
+        (eopl:error 'almacen-escribir! "Referencia invalida: ~s" ref))))
 ;;; ==========================================================
 ;;; 6. Valores expresados
 ;;; ==========================================================
@@ -278,6 +321,43 @@
     (value-of cuerpo-letrec
               (ambiente-recursivo nombres lista-params cuerpos amb))))
 
+;; ---- ref, deref y set (Carlos) ----------------------------------------
+
+;; Extrae el número de la referencia o aborta si el valor no es una referencia.
+(define referencia-de
+  (lambda (v quien)
+    (cases valor v
+      (valor-referencia (r) r)
+      (else (eopl:error quien "~a no es una referencia" (valor->texto v))))))
+
+;; ref(E): evalúa E, reserva una celda con ese valor y devuelve la referencia.
+(define eval-ref
+  (lambda (exp amb)
+    (let ((v (value-of exp amb)))
+      (valor-referencia (almacen-reservar! v)))))
+
+;; Con el valor ya evaluado
+(define deref-valor
+  (lambda (vref)
+    (almacen-leer (referencia-de vref 'deref))))
+
+(define set-valor!
+  (lambda (vref v)
+    (begin
+      (almacen-escribir! (referencia-de vref 'set) v)
+      (valor-unit))))
+
+;; deref(E): E debe evaluar a una referencia.
+(define eval-deref
+  (lambda (exp amb)
+    (deref-valor (value-of exp amb))))
+
+;; set E1 := E2: primero E1 y luego E2 (izquierda a derecha); devuelve unit.
+(define eval-set
+  (lambda (exp-ref exp-val amb)
+    (let ((vref (value-of exp-ref amb)))
+      (let ((v (value-of exp-val amb)))
+        (set-valor! vref v)))))
 ;;; ==========================================================
 ;;; 9. Interfaz
 ;;; ==========================================================
@@ -287,6 +367,7 @@
     (let ((pgm (scan&parse texto)))
       (begin
         (chequear-programa pgm)
+        (inicializar-almacen!)
         (cases programa pgm
           (un-programa (cuerpo) (value-of cuerpo (ambiente-vacio))))))))
 

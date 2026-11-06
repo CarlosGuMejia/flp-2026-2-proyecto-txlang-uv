@@ -1,5 +1,5 @@
 #lang eopl
-;Autores: Nombre1 Codigo1, Nombre2 Codigo2, ...
+;Autores: Juan Eduardo Calderon Jaramillo 2611001, Carlos Humberto Gutierrez 2059817
 
 #|
   Batería de pruebas del interpretador de TxLang-UV.
@@ -172,6 +172,62 @@
 (prueba-rechazo "apply de algo que no es procedimiento" "apply 5 (1)")
 (prueba-rechazo "apply con argumentos de más"
   "let f = proc (x: int) x end in apply f (1, 2) end")
+
+  ;; ---- Almacén: reservar, leer, escribir, ref/deref/set (Carlos) ---------
+
+(prueba-directa "almacen: referencias consecutivas"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((r0 (almacen-reservar! (valor-entero 10))))
+        (let ((r1 (almacen-reservar! (valor-entero 20))))
+          (string-append (number->string r0) (number->string r1))))))
+  "01")
+
+(prueba-directa "almacen: escribir cambia solo la celda indicada"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((r0 (almacen-reservar! (valor-entero 1))))
+        (let ((r1 (almacen-reservar! (valor-entero 2))))
+          (begin
+            (almacen-escribir! r0 (valor-entero 99))
+            (string-append (valor->texto (almacen-leer r0)) "|"
+                           (valor->texto (almacen-leer r1))))))))
+  "99|2")
+
+(prueba-directa "eval-ref reserva y devuelve una referencia"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (valor->texto (eval-ref (lit-exp 5) (ambiente-vacio)))))
+  "<ref 0>")
+
+(prueba-directa "set-valor! y deref-valor: lo escrito se lee"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((vref (eval-ref (lit-exp 0) (ambiente-vacio))))
+        (begin
+          (set-valor! vref (valor-entero 7))
+          (valor->texto (deref-valor vref))))))
+  "7")
+
+(prueba-directa "set-valor! devuelve unit"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((vref (eval-ref (lit-exp 0) (ambiente-vacio))))
+        (valor->texto (set-valor! vref (valor-entero 1))))))
+  "unit")
+
+(prueba-directa-error "deref de algo que no es una referencia"
+  (lambda () (deref-valor (valor-entero 5)))
+  "no es una referencia")
+
+(prueba-directa-error "almacen-leer con referencia inexistente"
+  (lambda () (begin (inicializar-almacen!) (almacen-leer 3)))
+  "Referencia invalida: 3")
 
 ;;; ==========================================================
 ;;; Segunda entrega: transacciones, registros y tipos
