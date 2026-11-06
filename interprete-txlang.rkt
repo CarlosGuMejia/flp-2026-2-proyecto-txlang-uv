@@ -358,6 +358,245 @@
     (let ((vref (value-of exp-ref amb)))
       (let ((v (value-of exp-val amb)))
         (set-valor! vref v)))))
+
+;; ---- begin, if y while (Carlos) ---------------------------------------
+
+;; Extrae el booleano o aborta. Lo usan if, while y las primitivas booleanas.
+(define booleano-de
+  (lambda (v quien)
+    (cases valor v
+      (valor-booleano (b) b)
+      (else (eopl:error quien "se esperaba un booleano y llego ~a"
+                        (valor->texto v))))))
+
+;; begin: evalúa de izquierda a derecha y devuelve el último valor.
+;; La gramática exige al menos una expresión.
+(define eval-begin
+  (lambda (exps amb)
+    (let ((v (value-of (car exps) amb)))
+      (if (null? (cdr exps))
+          v
+          (eval-begin (cdr exps) amb)))))
+
+;; if / elif / else. pruebas y ramas son listas paralelas: la primera
+;; prueba con su rama, luego cada elif con la suya. Solo se evalúa la rama
+;; elegida, y cada prueba debe ser booleana.
+(define eval-if
+  (lambda (pruebas ramas sino amb)
+    (if (null? pruebas)
+        (value-of sino amb)
+        (if (booleano-de (value-of (car pruebas) amb) 'if)
+            (value-of (car ramas) amb)
+            (eval-if (cdr pruebas) (cdr ramas) sino amb)))))
+
+;; while: mientras la condición sea verdadera evalúa el cuerpo. Devuelve unit.
+(define eval-while
+  (lambda (prueba cuerpo amb)
+    (if (booleano-de (value-of prueba amb) 'while)
+        (begin
+          (value-of cuerpo amb)
+          (eval-while prueba cuerpo amb))
+        (valor-unit))))
+
+
+;; ---- Primitivas (Carlos) ----------------------------------------------
+
+;; Reduce una lista de izquierda a derecha: (f (f a b) c)...
+(define reducir
+  (lambda (f lst)
+    (letrec ((bucle (lambda (acc resto)
+                      (if (null? resto)
+                          acc
+                          (bucle (f acc (car resto)) (cdr resto))))))
+      (bucle (car lst) (cdr lst)))))
+
+(define un-solo-argumento
+  (lambda (op args)
+    (if (= (length args) 1)
+        (car args)
+        (eopl:error op "requiere exactamente 1 operando y llegaron ~s"
+                    (length args)))))
+
+(define exactamente-dos
+  (lambda (op args)
+    (if (= (length args) 2)
+        #t
+        (eopl:error op "requiere exactamente 2 operandos y llegaron ~s"
+                    (length args)))))
+
+;; ---- numéricas ----
+
+(define clase-numerica
+  (lambda (v)
+    (cases valor v
+      (valor-entero (n) 'entero)
+      (valor-flotante (x) 'flotante)
+      (else #f))))
+
+(define clase-de
+  (lambda (op v)
+    (let ((c (clase-numerica v)))
+      (if c
+          c
+          (eopl:error op "~a no es un numero" (valor->texto v))))))
+
+;; Todos los operandos deben ser de la misma clase numérica.
+(define verificar-clase
+  (lambda (op args clase)
+    (cond ((null? args) clase)
+          ((eqv? (clase-numerica (car args)) clase)
+           (verificar-clase op (cdr args) clase))
+          (else (eopl:error op
+                  "los operandos deben ser numericos del mismo tipo y llego ~a"
+                  (valor->texto (car args)))))))
+
+(define numero-crudo
+  (lambda (v)
+    (cases valor v
+      (valor-entero (n) n)
+      (valor-flotante (x) x)
+      (else (eopl:error 'numero-crudo "~a no es un numero" (valor->texto v))))))
+
+(define construir-numero
+  (lambda (clase n)
+    (if (eqv? clase 'entero)
+        (valor-entero n)
+        (valor-flotante n))))
+
+(define operar-dos
+  (lambda (op clase a b)
+    (cond ((eqv? op '+) (+ a b))
+          ((eqv? op '-) (- a b))
+          ((eqv? op '*) (* a b))
+          ((eqv? op '/)
+           (cond ((= b 0) (eopl:error '/ "Division por cero"))
+                 ((eqv? clase 'entero) (quotient a b))
+                 (else (/ a b))))
+          (else ; %
+           (cond ((not (eqv? clase 'entero))
+                  (eopl:error '% "% solo acepta enteros"))
+                 ((= b 0) (eopl:error '% "Division por cero"))
+                 (else (remainder a b)))))))
+
+(define operar-aritmetica
+  (lambda (op args)
+    (if (null? args)
+        (eopl:error op "requiere al menos un operando")
+        (let ((clase (verificar-clase op args (clase-de op (car args)))))
+          (construir-numero
+           clase
+           (reducir (lambda (a b) (operar-dos op clase a b))
+                    (map numero-crudo args)))))))
+
+;; ---- relacionales ----
+
+(define comparar-numeros
+  (lambda (op args)
+    (begin
+      (exactamente-dos op args)
+      (verificar-clase op args (clase-de op (car args)))
+      (let ((a (numero-crudo (car args)))
+            (b (numero-crudo (cadr args))))
+        (valor-booleano
+         (cond ((eqv? op '>) (> a b))
+               ((eqv? op '<) (< a b))
+               ((eqv? op '>=) (>= a b))
+               (else (<= a b))))))))
+
+;; == y != comparan valores de la misma clase: números, cadenas,
+;; caracteres o booleanos.
+(define comparable
+  (lambda (op v)
+    (cases valor v
+      (valor-entero (n) (cons 'entero n))
+      (valor-flotante (x) (cons 'flotante x))
+      (valor-cadena (s) (cons 'cadena s))
+      (valor-caracter (c) (cons 'caracter c))
+      (valor-booleano (b) (cons 'booleano b))
+      (else (eopl:error op "no se puede comparar ~a" (valor->texto v))))))
+
+(define comparar-igualdad
+  (lambda (op args)
+    (begin
+      (exactamente-dos op args)
+      (let ((a (comparable op (car args)))
+            (b (comparable op (cadr args))))
+        (if (eqv? (car a) (car b))
+            (valor-booleano (if (eqv? op '==)
+                                (equal? (cdr a) (cdr b))
+                                (not (equal? (cdr a) (cdr b)))))
+            (eopl:error op "no se pueden comparar valores de distinto tipo: ~a y ~a"
+                        (valor->texto (car args))
+                        (valor->texto (cadr args))))))))
+
+;; ---- booleanas ----
+
+(define operar-booleana
+  (lambda (op args)
+    (cond ((eqv? op 'not)
+           (valor-booleano (not (booleano-de (un-solo-argumento 'not args) 'not))))
+          ((null? args) (eopl:error op "requiere al menos un operando"))
+          (else
+           (let ((bs (map (lambda (v) (booleano-de v op)) args)))
+             (valor-booleano
+              (if (eqv? op 'and)
+                  (reducir (lambda (a b) (and a b)) bs)
+                  (reducir (lambda (a b) (or a b)) bs))))))))
+
+;; ---- cadenas, conversión y print ----
+
+(define cadena-de
+  (lambda (v quien)
+    (cases valor v
+      (valor-cadena (s) s)
+      (else (eopl:error quien "se esperaba una cadena y llego ~a"
+                        (valor->texto v))))))
+
+(define texto->numero
+  (lambda (s)
+    (let ((n (string->number s)))
+      (cond ((not n) (eopl:error 'to-number "~a no es un numero valido" s))
+            ((and (integer? n) (exact? n)) (valor-entero n))
+            ((and (real? n) (not (exact? n))) (valor-flotante n))
+            (else (eopl:error 'to-number "~a no es un numero valido" s))))))
+
+;; print escribe en la consola y devuelve unit. No es parte del almacén,
+;; así que una reversión (entrega 2) no puede deshacerlo.
+(define imprimir
+  (lambda (v)
+    (begin
+      (eopl:printf "~a~%" (valor->texto v))
+      (valor-unit))))
+
+;; ---- despacho ----
+
+(define aplicar-primitiva
+  (lambda (op args)
+    (cond ((memv op '(+ - * / %)) (operar-aritmetica op args))
+          ((memv op '(> < >= <=)) (comparar-numeros op args))
+          ((memv op '(== !=)) (comparar-igualdad op args))
+          ((memv op '(and or not)) (operar-booleana op args))
+          ((eqv? op 'concat)
+           (if (null? args)
+               (eopl:error 'concat "requiere al menos un operando")
+               (valor-cadena
+                (reducir string-append
+                         (map (lambda (v) (cadena-de v 'concat)) args)))))
+          ((eqv? op 'length)
+           (valor-entero
+            (string-length (cadena-de (un-solo-argumento 'length args) 'length))))
+          ((eqv? op 'to-string)
+           (valor-cadena (valor->texto (un-solo-argumento 'to-string args))))
+          ((eqv? op 'to-number)
+           (texto->numero (cadena-de (un-solo-argumento 'to-number args) 'to-number)))
+          ((eqv? op 'print) (imprimir (un-solo-argumento 'print args)))
+          (else (eopl:error 'aplicar-primitiva "primitiva desconocida ~s" op)))))
+
+;; prim-exp: evalúa los operandos de izquierda a derecha y aplica.
+(define eval-prim
+  (lambda (op exps amb)
+    (aplicar-primitiva op (evaluar-lista exps amb))))
+
 ;;; ==========================================================
 ;;; 9. Interfaz
 ;;; ==========================================================
