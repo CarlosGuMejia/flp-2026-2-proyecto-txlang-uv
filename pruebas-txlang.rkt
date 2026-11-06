@@ -1,5 +1,5 @@
 #lang eopl
-;Autores: Nombre1 Codigo1, Nombre2 Codigo2, ...
+;Autores: Juan Eduardo Calderon Jaramillo 2611001, Carlos Humberto Gutierrez 2059817
 
 #|
   Batería de pruebas del interpretador de TxLang-UV.
@@ -172,6 +172,120 @@
 (prueba-rechazo "apply de algo que no es procedimiento" "apply 5 (1)")
 (prueba-rechazo "apply con argumentos de más"
   "let f = proc (x: int) x end in apply f (1, 2) end")
+
+  ;; ---- Almacén: reservar, leer, escribir, ref/deref/set (Carlos) ---------
+
+(prueba-directa "almacen: referencias consecutivas"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((r0 (almacen-reservar! (valor-entero 10))))
+        (let ((r1 (almacen-reservar! (valor-entero 20))))
+          (string-append (number->string r0) (number->string r1))))))
+  "01")
+
+(prueba-directa "almacen: escribir cambia solo la celda indicada"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((r0 (almacen-reservar! (valor-entero 1))))
+        (let ((r1 (almacen-reservar! (valor-entero 2))))
+          (begin
+            (almacen-escribir! r0 (valor-entero 99))
+            (string-append (valor->texto (almacen-leer r0)) "|"
+                           (valor->texto (almacen-leer r1))))))))
+  "99|2")
+
+(prueba-directa "eval-ref reserva y devuelve una referencia"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (valor->texto (eval-ref (lit-exp 5) (ambiente-vacio)))))
+  "<ref 0>")
+
+(prueba-directa "set-valor! y deref-valor: lo escrito se lee"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((vref (eval-ref (lit-exp 0) (ambiente-vacio))))
+        (begin
+          (set-valor! vref (valor-entero 7))
+          (valor->texto (deref-valor vref))))))
+  "7")
+
+(prueba-directa "set-valor! devuelve unit"
+  (lambda ()
+    (begin
+      (inicializar-almacen!)
+      (let ((vref (eval-ref (lit-exp 0) (ambiente-vacio))))
+        (valor->texto (set-valor! vref (valor-entero 1))))))
+  "unit")
+
+(prueba-directa-error "deref de algo que no es una referencia"
+  (lambda () (deref-valor (valor-entero 5)))
+  "no es una referencia")
+
+(prueba-directa-error "almacen-leer con referencia inexistente"
+  (lambda () (begin (inicializar-almacen!) (almacen-leer 3)))
+  "Referencia invalida: 3")
+
+;; ---- Primitivas y control (Carlos) ------------------------------------
+
+(define prim
+  (lambda (op args) (valor->texto (aplicar-primitiva op args))))
+
+(define e valor-entero)   ; abreviatura solo para estas pruebas
+(define s valor-cadena)
+
+(prueba-directa "primitivas: suma n-aria"
+  (lambda () (prim '+ (list (e 1) (e 2) (e 3)))) "6")
+(prueba-directa "primitivas: resta n-aria y división entera"
+  (lambda () (string-append (prim '- (list (e 10) (e 3) (e 2))) "|"
+                            (prim '/ (list (e 7) (e 2))) "|"
+                            (prim '% (list (e 7) (e 3)))))
+  "5|3|1")
+(prueba-directa "primitivas: flotantes"
+  (lambda () (prim '+ (list (valor-flotante 1.5) (valor-flotante 2.5)))) "4.0")
+(prueba-directa-error "primitivas: división por cero"
+  (lambda () (prim '/ (list (e 4) (e 0)))) "Division por cero")
+(prueba-directa-error "primitivas: mezclar entero y flotante"
+  (lambda () (prim '+ (list (e 1) (valor-flotante 2.5)))) "llego 2.5")
+(prueba-directa "primitivas: relacionales e igualdad"
+  (lambda () (string-append (prim '< (list (e 1) (e 2))) "|"
+                            (prim '== (list (s "a") (s "a"))) "|"
+                            (prim '!= (list (e 3) (e 3)))))
+  "true|true|false")
+(prueba-directa "primitivas: booleanas"
+  (lambda () (string-append (prim 'and (list (valor-booleano #t) (valor-booleano #f))) "|"
+                            (prim 'or (list (valor-booleano #t) (valor-booleano #f))) "|"
+                            (prim 'not (list (valor-booleano #f)))))
+  "false|true|true")
+(prueba-directa "primitivas: cadenas y conversión"
+  (lambda () (string-append (prim 'concat (list (s "ho") (s "la"))) "|"
+                            (prim 'length (list (s "hola"))) "|"
+                            (prim 'to-number (list (s "42"))) "|"
+                            (prim 'to-string (list (e 7)))))
+  "hola|4|42|7")
+(prueba-directa-error "primitivas: to-number de un texto que no es número"
+  (lambda () (prim 'to-number (list (s "abc")))) "no es un numero valido")
+(prueba-directa "primitivas: print devuelve unit"
+  (lambda () (prim 'print (list (s "hola desde print")))) "unit")
+(prueba-directa "eval-begin devuelve el último valor"
+  (lambda () (valor->texto (eval-begin (list (lit-exp 1) (lit-exp 2) (lit-exp 3))
+                                       (ambiente-vacio))))
+  "3")
+(prueba-directa-error "eval-if con prueba que no es booleana"
+  (lambda () (eval-if (list (lit-exp 1)) (list (lit-exp 2)) (lit-exp 3) (ambiente-vacio)))
+  "se esperaba un booleano y llego 1")
+
+;; Con gramática (pasan cuando David conecte todo):
+(prueba "una celda: ref, set y deref"
+  "let c = ref(0) in begin set c := 5; deref(c) end end" "5")
+(prueba "while cuenta hasta 3"
+  "let c = ref(0) in begin while <(deref(c), 3) do set c := +(deref(c), 1) end; deref(c) end end" "3")
+(prueba "if con elif"
+  "if ==(1, 2) then 10 elif ==(1, 1) then 20 else 30 end" "20")
+(prueba "primitiva desde el parser" "+(1, 2)" "3")  
 
 ;;; ==========================================================
 ;;; Segunda entrega: transacciones, registros y tipos
