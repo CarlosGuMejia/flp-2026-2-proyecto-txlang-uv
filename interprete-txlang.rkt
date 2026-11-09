@@ -1,5 +1,5 @@
 #lang eopl
-;Autores:  Juan Eduardo Calderon Jaramillo 2611001, Carlos Humberto Gutierrez 2059817
+;Autores:  Juan Eduardo Calderon Jaramillo 2611001, Jesus David Lopez Diaz  202611029, Carlos Humberto Gutierrez 2059817
 
 #|
   Interpretador de TxLang-UV.
@@ -16,27 +16,123 @@
   que usan pruebas-txlang.rkt y ejemplos-anexo.rkt. Todo lo demás lo pone el
   grupo, siguiendo la gramática y la semántica del enunciado.
 |#
-
 ;;; ==========================================================
 ;;; 1. Especificación léxica
 ;;; ==========================================================
 ;; Los dos tipos de comentario, los literales de cada clase y los
 ;; identificadores. El comentario de bloque no admite | adentro.
+;;
+;; - // llega hasta el fin del renglón; #| ... |# no admite | adentro.
+;; - numero: entero con "-" opcional al inicio. flotante: con punto, también
+;;   con "-" opcional.
+;; - cadena va entre comillas dobles y caracter entre comillas simples.
+;;   SLLGEN entrega estos dos tokens CON sus comillas; value-of las quita.
+;; - identificador: empieza con letra y sigue con letras, dígitos, "-", "_" o "?".
+;;   Las palabras reservadas son los strings de la gramática, y ante igual
+;;   longitud SLLGEN prefiere la palabra reservada: "to-string" es reservada.
+;;   Ojo: "int->int" se lee como identificador; en los tipos se escribe "int -> int".
 
 (define especificacion-lexica
   '((espacio (whitespace) skip)
+    (comentario-linea ("//" (arbno (not #\newline))) skip)
+    (comentario-bloque ("#|" (arbno (not #\|)) "|#") skip)
+    (identificador (letter (arbno (or letter digit "-" "_" "?"))) symbol)
     (numero (digit (arbno digit)) number)
-    (identificador (letter (arbno (or letter digit "-" "_" "?"))) symbol)))
+    (numero ("-" digit (arbno digit)) number)
+    (flotante (digit (arbno digit) "." digit (arbno digit)) number)
+    (flotante ("-" digit (arbno digit) "." digit (arbno digit)) number)
+    (cadena ("\"" (arbno (not #\")) "\"") string)
+    (caracter ("'" (not #\') "'") string)))
 
 ;;; ==========================================================
 ;;; 2. Especificación gramatical
 ;;; ==========================================================
 ;; Un datatype por no terminal: programa, declaración de registro, tipo,
 ;; expresión y primitiva. Los nombres de las variantes los escoge el grupo.
+;;
+;; SLLGEN no tiene { }+: las repeticiones "una o más" se declaran con
+;; separated-list o arbno, que también aceptan cero elementos.
 
 (define especificacion-gramatical
-  '((programa (expresion) un-programa)
-    (expresion (numero) lit-exp)))
+  '((programa ((arbno decl-registro) expresion) un-programa)
+
+    ;; --- declaración de registro ---
+    (decl-registro ("record" identificador
+                    "{" (separated-list identificador ":" tipo ",") "}")
+                   record-decl)
+
+    ;; --- tipos ---
+    (tipo ("int") int-type)
+    (tipo ("float") float-type)
+    (tipo ("bool") bool-type)
+    (tipo ("string") string-type)
+    (tipo ("char") char-type)
+    (tipo ("unit") unit-type)
+    (tipo ("ref" "(" tipo ")") ref-type)
+    (tipo ("(" (separated-list tipo ",") "->" tipo ")") proc-type)
+    (tipo (identificador) named-type)
+
+    ;; --- expresiones ---
+    (expresion (numero) lit-exp)
+    (expresion (flotante) float-exp)
+    (expresion (cadena) string-exp)
+    (expresion (caracter) char-exp)
+    (expresion ("true") true-exp)
+    (expresion ("false") false-exp)
+    (expresion ("unit") unit-exp)
+    (expresion (identificador) var-exp)
+    (expresion ("let" (separated-list identificador "=" expresion ",")
+                "in" expresion "end")
+               let-exp)
+    (expresion ("ref" "(" expresion ")") ref-exp)
+    (expresion ("deref" "(" expresion ")") deref-exp)
+    (expresion ("set" expresion ":=" expresion) set-exp)
+    (expresion ("begin" expresion (arbno ";" expresion) "end") begin-exp)
+    (expresion ("if" expresion "then" expresion
+                (arbno "elif" expresion "then" expresion)
+                "else" expresion "end")
+               if-exp)
+    (expresion ("while" expresion "do" expresion "end") while-exp)
+    (expresion (primitiva "(" (separated-list expresion ",") ")") prim-exp)
+    (expresion ("proc" "(" (separated-list identificador ":" tipo ",") ")"
+                expresion "end")
+               proc-exp)
+    (expresion ("apply" expresion "(" (separated-list expresion ",") ")")
+               apply-exp)
+    (expresion ("letrec"
+                (arbno tipo identificador
+                       "(" (separated-list identificador ":" tipo ",") ")"
+                       "=" expresion)
+                "in" expresion "end")
+               letrec-exp)
+    (expresion ("atomic" expresion "onfail" "(" identificador ")" expresion "end")
+               atomic-exp)
+    (expresion ("abort" "(" expresion ")") abort-exp)
+    (expresion ("new" identificador
+                "{" (separated-list identificador "=" expresion ",") "}")
+               new-exp)
+    (expresion ("field" "(" expresion "," identificador ")") field-exp)
+
+    ;; --- primitivas ---
+    (primitiva ("+") sum-prim)
+    (primitiva ("-") minus-prim)
+    (primitiva ("*") mult-prim)
+    (primitiva ("/") div-prim)
+    (primitiva ("%") mod-prim)
+    (primitiva (">") mayor-prim)
+    (primitiva ("<") menor-prim)
+    (primitiva (">=") mayorigual-prim)
+    (primitiva ("<=") menorigual-prim)
+    (primitiva ("==") igual-prim)
+    (primitiva ("!=") diferente-prim)
+    (primitiva ("and") and-prim)
+    (primitiva ("or") or-prim)
+    (primitiva ("not") not-prim)
+    (primitiva ("concat") concat-prim)
+    (primitiva ("length") length-prim)
+    (primitiva ("to-string") tostring-prim)
+    (primitiva ("to-number") tonumber-prim)
+    (primitiva ("print") print-prim)))
 
 (sllgen:make-define-datatypes especificacion-lexica especificacion-gramatical)
 
@@ -48,20 +144,182 @@
   (lambda ()
     (sllgen:list-define-datatypes especificacion-lexica especificacion-gramatical)))
 
+;; primitiva->simbolo : primitiva -> symbol
+;; El símbolo que usa aplicar-primitiva (sección 8) para despachar:
+;; + - * / % > < >= <= == != and or not concat length to-string to-number print.
+(define primitiva->simbolo
+  (lambda (prim)
+    (cases primitiva prim
+      (sum-prim () '+)
+      (minus-prim () '-)
+      (mult-prim () '*)
+      (div-prim () '/)
+      (mod-prim () '%)
+      (mayor-prim () '>)
+      (menor-prim () '<)
+      (mayorigual-prim () '>=)
+      (menorigual-prim () '<=)
+      (igual-prim () '==)
+      (diferente-prim () '!=)
+      (and-prim () 'and)
+      (or-prim () 'or)
+      (not-prim () 'not)
+      (concat-prim () 'concat)
+      (length-prim () 'length)
+      (tostring-prim () 'to-string)
+      (tonumber-prim () 'to-number)
+      (print-prim () 'print))))
+
 ;;; ==========================================================
 ;;; 3. Unparse: del árbol de sintaxis abstracta al texto
 ;;; ==========================================================
+;; Reconstruye el texto del programa y ese texto vuelve a parsear. La
+;; gramática no tiene operadores infijos, así que no hacen falta paréntesis.
+;; Los comentarios y los espacios originales no se conservan.
 
-(define unparse
-  (lambda (pgm)
-    (cases programa pgm
-      (un-programa (cuerpo) (unparse-expresion cuerpo)))))
+;; unir : lista de string x string -> string
+;; Concatena los strings poniendo sep entre cada par.
+(define unir
+  (lambda (strs sep)
+    (cond
+      [(null? strs) ""]
+      [(null? (cdr strs)) (car strs)]
+      [else (string-append (car strs) sep (unir (cdr strs) sep))])))
 
+;; unparse-primitiva : primitiva -> string
+(define unparse-primitiva
+  (lambda (prim)
+    (symbol->string (primitiva->simbolo prim))))
+
+;; unparse-tipo : tipo -> string
+(define unparse-tipo
+  (lambda (t)
+    (cases tipo t
+      (int-type () "int")
+      (float-type () "float")
+      (bool-type () "bool")
+      (string-type () "string")
+      (char-type () "char")
+      (unit-type () "unit")
+      (ref-type (interno) (string-append "ref(" (unparse-tipo interno) ")"))
+      (proc-type (args res)
+                 (string-append "("
+                                (unir (map unparse-tipo args) ", ")
+                                (if (null? args) "" " ")
+                                "-> " (unparse-tipo res) ")"))
+      (named-type (nombre) (symbol->string nombre)))))
+
+;; unparse-params : lista de symbol x lista de tipo -> string
+;; Produce "x : int, y : bool" para parámetros o campos.
+(define unparse-params
+  (lambda (ids tipos)
+    (unir (map (lambda (id t)
+                 (string-append (symbol->string id) " : " (unparse-tipo t)))
+               ids tipos)
+          ", ")))
+
+;; unparse-expresiones : lista de expresion x string -> string
+(define unparse-expresiones
+  (lambda (exps sep)
+    (unir (map unparse-expresion exps) sep)))
+
+;; unparse-expresion : expresion -> string
 (define unparse-expresion
   (lambda (exp)
     (cases expresion exp
-      (lit-exp (n) (number->string n)))))
+      (lit-exp (n) (number->string n))
+      (float-exp (x) (number->string x))
+      (string-exp (s) s)
+      (char-exp (c) c)
+      (true-exp () "true")
+      (false-exp () "false")
+      (unit-exp () "unit")
+      (var-exp (id) (symbol->string id))
+      (let-exp (ids exps cuerpo)
+               (string-append
+                "let "
+                (unir (map (lambda (id e)
+                             (string-append (symbol->string id) " = " (unparse-expresion e)))
+                           ids exps)
+                      ", ")
+                " in " (unparse-expresion cuerpo) " end"))
+      (ref-exp (e) (string-append "ref(" (unparse-expresion e) ")"))
+      (deref-exp (e) (string-append "deref(" (unparse-expresion e) ")"))
+      (set-exp (destino valor-exp)
+               (string-append "set " (unparse-expresion destino)
+                              " := " (unparse-expresion valor-exp)))
+      (begin-exp (primera resto)
+                 (string-append "begin " (unparse-expresion primera)
+                                (unir (map (lambda (e) (string-append "; " (unparse-expresion e)))
+                                           resto)
+                                      "")
+                                " end"))
+      (if-exp (prueba rama elif-pruebas elif-ramas sino)
+              (string-append
+               "if " (unparse-expresion prueba) " then " (unparse-expresion rama)
+               (unir (map (lambda (c a)
+                            (string-append " elif " (unparse-expresion c)
+                                           " then " (unparse-expresion a)))
+                          elif-pruebas elif-ramas)
+                     "")
+               " else " (unparse-expresion sino) " end"))
+      (while-exp (prueba cuerpo)
+                 (string-append "while " (unparse-expresion prueba)
+                                " do " (unparse-expresion cuerpo) " end"))
+      (prim-exp (prim exps)
+                (string-append (unparse-primitiva prim) "("
+                               (unparse-expresiones exps ", ") ")"))
+      (proc-exp (ids tipos cuerpo)
+                (string-append "proc(" (unparse-params ids tipos) ") "
+                               (unparse-expresion cuerpo) " end"))
+      (apply-exp (operador operandos)
+                 (string-append "apply " (unparse-expresion operador)
+                                "(" (unparse-expresiones operandos ", ") ")"))
+      (letrec-exp (tipos-res nombres idss tiposs cuerpos cuerpo)
+                  (string-append
+                   "letrec "
+                   (unir (map (lambda (tr nombre ids tipos c)
+                                (string-append (unparse-tipo tr) " " (symbol->string nombre)
+                                               "(" (unparse-params ids tipos) ") = "
+                                               (unparse-expresion c)))
+                              tipos-res nombres idss tiposs cuerpos)
+                         " ")
+                   " in " (unparse-expresion cuerpo) " end"))
+      (atomic-exp (cuerpo var manejador)
+                  (string-append "atomic " (unparse-expresion cuerpo)
+                                 " onfail(" (symbol->string var) ") "
+                                 (unparse-expresion manejador) " end"))
+      (abort-exp (e) (string-append "abort(" (unparse-expresion e) ")"))
+      (new-exp (nombre campos exps)
+               (string-append "new " (symbol->string nombre) " { "
+                              (unir (map (lambda (f e)
+                                           (string-append (symbol->string f) " = "
+                                                          (unparse-expresion e)))
+                                         campos exps)
+                                    ", ")
+                              " }"))
+      (field-exp (e campo)
+                 (string-append "field(" (unparse-expresion e) ", "
+                                (symbol->string campo) ")")))))
 
+;; unparse-decl : decl-registro -> string
+(define unparse-decl
+  (lambda (d)
+    (cases decl-registro d
+      (record-decl (nombre campos tipos)
+                   (string-append "record " (symbol->string nombre) " { "
+                                  (unparse-params campos tipos) " }")))))
+
+;; unparse : programa -> string
+;; Reconstruye el texto completo del programa, con sus registros.
+(define unparse
+  (lambda (pgm)
+    (cases programa pgm
+      (un-programa (decls cuerpo)
+                   (string-append
+                    (unir (map unparse-decl decls) " ")
+                    (if (null? decls) "" " ")
+                    (unparse-expresion cuerpo))))))
 ;;; ==========================================================
 ;;; 4. TAD ambiente
 ;;; ==========================================================
@@ -241,10 +499,56 @@
 ;;; 8. Interpretador
 ;;; ==========================================================
 
+;; value-of: cada variante llama a su función auxiliar con las piezas del
+;; árbol ya separadas. Los literales y las variables se resuelven aquí mismo.
+;; Las funciones de let, proc, apply, letrec, ref, deref, set, begin, if, while
+;; y prim son las de abajo (Juan y Carlos). atomic, abort, new y field quedan
+;; para la segunda entrega.
 (define value-of
   (lambda (exp amb)
     (cases expresion exp
-      (lit-exp (n) (valor-entero n)))))
+      (lit-exp (n) (valor-entero n))
+      (float-exp (x) (valor-flotante x))
+      (string-exp (s) (valor-cadena (substring s 1 (- (string-length s) 1))))
+      (char-exp (c) (valor-caracter (string-ref c 1)))
+      (true-exp () (valor-booleano #t))
+      (false-exp () (valor-booleano #f))
+      (unit-exp () (valor-unit))
+      (var-exp (id) (apply-env amb id))
+      (let-exp (ids exps cuerpo) (eval-let ids exps cuerpo amb))
+      (ref-exp (e) (eval-ref e amb))
+      (deref-exp (e) (eval-deref e amb))
+      (set-exp (destino valor-exp) (eval-set destino valor-exp amb))
+      (begin-exp (primera resto) (eval-begin (cons primera resto) amb))
+      (if-exp (prueba rama elif-pruebas elif-ramas sino)
+              (eval-if (cons prueba elif-pruebas) (cons rama elif-ramas) sino amb))
+      (while-exp (prueba cuerpo) (eval-while prueba cuerpo amb))
+      (prim-exp (prim exps) (eval-prim (primitiva->simbolo prim) exps amb))
+      (proc-exp (ids tipos cuerpo) (eval-proc ids cuerpo amb))
+      (apply-exp (operador operandos) (eval-apply operador operandos amb))
+      (letrec-exp (tipos-res nombres idss tiposs cuerpos cuerpo)
+                  (eval-letrec nombres idss cuerpos cuerpo amb))
+      (atomic-exp (cuerpo var manejador) (eval-atomic cuerpo var manejador amb))
+      (abort-exp (e) (eval-abort e amb))
+      (new-exp (nombre campos exps) (eval-new nombre campos exps amb))
+      (field-exp (e campo) (eval-field e campo amb)))))
+
+;; Segunda entrega: atomic, abort, registros (new y field).
+(define eval-atomic
+  (lambda (cuerpo var manejador amb)
+    (eopl:error 'atomic "llega en la segunda entrega")))
+
+(define eval-abort
+  (lambda (e amb)
+    (eopl:error 'abort "llega en la segunda entrega")))
+
+(define eval-new
+  (lambda (nombre campos exps amb)
+    (eopl:error 'new "llega en la segunda entrega")))
+
+(define eval-field
+  (lambda (e campo amb)
+    (eopl:error 'field "llega en la segunda entrega")))
 
 ;; Funciones auxiliares de value-of para let, proc, apply y letrec. Reciben
 ;; las piezas del árbol ya separadas, así que no dependen de cómo se llamen
@@ -608,7 +912,7 @@
         (chequear-programa pgm)
         (inicializar-almacen!)
         (cases programa pgm
-          (un-programa (cuerpo) (value-of cuerpo (ambiente-vacio))))))))
+          (un-programa (decls cuerpo) (value-of cuerpo (ambiente-vacio))))))))
 
 ;; Lo que usan las baterías: un texto de TxLang-UV y el valor como texto.
 (define correr

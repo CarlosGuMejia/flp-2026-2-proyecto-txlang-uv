@@ -1,5 +1,5 @@
 #lang eopl
-;Autores: Juan Eduardo Calderon Jaramillo 2611001, Carlos Humberto Gutierrez 2059817
+;Autores: Juan Eduardo Calderon Jaramillo 2611001, Jesus David Lopez Diaz  202611029, Carlos Humberto Gutierrez 2059817
 
 #|
   Batería de pruebas del interpretador de TxLang-UV.
@@ -162,7 +162,7 @@
 (prueba "3. la clausura usa el ambiente donde se creó"
   "let x = 5 in let f = proc (y: int) +(x, y) end in let x = 100 in apply f (1) end end end" "6")
 (prueba "4. letrec con recursión mutua"
-  "letrec bool par (n: int) = if ==(n, 0) then true else apply impar (-(n, 1)) end,
+  "letrec bool par (n: int) = if ==(n, 0) then true else apply impar (-(n, 1)) end
           bool impar (n: int) = if ==(n, 0) then false else apply par (-(n, 1)) end
    in apply par (10) end" "true")
 (prueba "5. letrec con recursión simple"
@@ -287,6 +287,41 @@
   "if ==(1, 2) then 10 elif ==(1, 1) then 20 else 30 end" "20")
 (prueba "primitiva desde el parser" "+(1, 2)" "3")  
 
+;; ---- Parser y unparse (David) ----------------------------------------
+;; BLOQUE PARA PEGAR en pruebas-txlang.rkt, dentro de la primera entrega: justo
+;; antes del titulo ";;; Segunda entrega". Usa las ayudas que ya trae el archivo
+;; (verificar, ida-y-vuelta, prueba-rechazo) y no requiere rackunit.
+
+;; prueba-unparse : string x string x string -> void
+;; El unparse del árbol de un texto da exactamente el texto esperado.
+(define prueba-unparse
+  (lambda (etiqueta texto esperado)
+    (verificar etiqueta
+               (with-handlers ((exn:fail? (lambda (e) (string-append "ERROR: " (exn-message e)))))
+                 (unparse (scan&parse texto)))
+               esperado)))
+
+(prueba-unparse "unparse 1: enteros con signo y flotantes"
+  "let x = -1, y = 3.5 in x end" "let x = -1, y = 3.5 in x end")
+(prueba-unparse "unparse 1b: entero negativo suelto" "-7" "-7")
+(prueba-unparse "unparse 2: los comentarios de línea y de bloque se ignoran"
+  "#| bloque |# // linea
+ 42" "42")
+(prueba-unparse "unparse 2b: comentario de bloque entre ligaduras"
+  "let x = 1 #| medio |#, y = 2 in x end" "let x = 1, y = 2 in x end")
+(prueba-unparse "unparse 3: registro, new y field"
+  "record punto { x : int, y : int } let p = new punto { x = 1, y = 2 } in field(p, x) end"
+  "record punto { x : int, y : int } let p = new punto { x = 1, y = 2 } in field(p, x) end")
+(prueba-unparse "unparse 4: ref, begin, if con elif y while"
+  "let r = ref(0) in begin set r := +(deref(r), 1); while <(deref(r), 3) do unit end; if >(1, 2) then 1 elif ==(1, 1) then 2 else 3 end end end"
+  "let r = ref(0) in begin set r := +(deref(r), 1); while <(deref(r), 3) do unit end; if >(1, 2) then 1 elif ==(1, 1) then 2 else 3 end end end")
+(prueba-unparse "unparse 5: proc con tipo de procedimiento"
+  "proc(x : int, f : (int -> int)) apply f(x) end" "proc(x : int, f : (int -> int)) apply f(x) end")
+(ida-y-vuelta "ida y vuelta: letrec con tipos"
+  "letrec int fact (n: int) = if ==(n, 0) then 1 else *(n, apply fact (-(n, 1))) end in apply fact (5) end")
+(ida-y-vuelta "ida y vuelta: atomic, abort y onfail"
+  "atomic begin abort(1); 2 end onfail(e) 0 end")
+(prueba-rechazo "parser: un if sin else se rechaza" "if true then 1 end")
 ;;; ==========================================================
 ;;; Segunda entrega: transacciones, registros y tipos
 ;;; ==========================================================

@@ -21,7 +21,7 @@ pierde el 20 %; quien no aparezca aquí no cuenta como parte del grupo.
 |---------------------------------|---------|---------------------------------------------|
 | Juan Eduardo Calderon Jaramillo | 2611001 | juan.eduardo.calderon@correounivalle.edu.co |
 | Carlos Humberto Gutierrez Mejia | 2059817 | carlos.humberto.gutirrez@correounivalle.edu.co |
-|                                 |         |                                             |
+| Jesus David Lopez Diaz          |202611029|jesus.david.lopez@correounivalle.edu.co                                             |
 |                                 |         |                                             |
 
 ## Entregas
