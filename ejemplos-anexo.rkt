@@ -1,5 +1,5 @@
 #lang eopl
-;Autores: Nombre1 Codigo1, Nombre2 Codigo2, ...
+;Autores: Jesus David Lopez Diaz  202611029, Nombre2 Codigo2, ...
 
 #|
   Los diez ejemplos del anexo del enunciado, copiados literalmente del
