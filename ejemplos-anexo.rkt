@@ -1,5 +1,5 @@
 #lang eopl
-;Autores: Jesus David Lopez Diaz  202611029, Nombre2 Codigo2, ...
+;Autores: Juan Eduardo Calderon Jaramillo 2611001, Carlos Humberto Gutierrez 2059817, Jesus David Lopez Diaz  202611029
 
 #|
   Los diez ejemplos del anexo del enunciado, copiados literalmente del

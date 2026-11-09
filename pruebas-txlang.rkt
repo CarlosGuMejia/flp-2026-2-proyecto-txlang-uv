@@ -1,5 +1,5 @@
 #lang eopl
-;Autores: Juan Eduardo Calderon Jaramillo 2611001, Jesus David Lopez Diaz  202611029, Carlos Humberto Gutierrez 2059817
+;Autores: Juan Eduardo Calderon Jaramillo 2611001, Carlos Humberto Gutierrez 2059817, Jesus David Lopez Diaz  202611029
 
 #|
   Batería de pruebas del interpretador de TxLang-UV.
